@@ -46,11 +46,15 @@ export interface SessionsSnapshotLike {
   readonly projectionsBySession?: Readonly<Record<string, SessionValuesLike | undefined>> | undefined
 }
 
-/** One Workspace row (`ctx.workspaces.list.getSnapshot().items[]`). */
+/**
+ * One Workspace row (`ctx.workspaces.list.getSnapshot().items[]`).
+ *
+ * Membership is the only field this plugin reads: the row states which Sessions
+ * are accounted to it, and a nested Workspace's directory path deliberately plays
+ * no part — its activity belongs to its own row, never to a parent's.
+ */
 export interface WorkspaceViewLike {
   readonly workspaceId?: string | undefined
-  /** Canonical Host directory; also the hierarchy key for nested Workspaces. */
-  readonly path?: string | undefined
   /** Sessions accounted to this Workspace. */
   readonly sessionIds?: readonly string[] | undefined
 }

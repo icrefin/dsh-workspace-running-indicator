@@ -167,27 +167,47 @@ describe('folded Workspace with a working Session', () => {
 })
 
 describe('nested Workspaces', () => {
-  it('animates a folded parent while a nested child workspace is busy', () => {
+  // Regression: eda_vm (/workspace/asic/eda_vm) owns only idle Sessions while
+  // tangram (/workspace/asic/eda_vm/tangram) runs. The parent's own title is the
+  // only claim its row makes, so it must stay a folder.
+  it('keeps an idle parent a folder while a nested child workspace is running', () => {
     document.body.innerHTML = browserList(workspaceRow('ws-parent'), workspaceRow('ws-child'))
-    mount(catalog(['s-1', true]), {
+    mount(catalog(['s-idle', false], ['s-run', true]), {
       items: [
-        workspace('ws-parent', [], '/repo'),
-        workspace('ws-child', ['s-1'], '/repo/packages/app'),
+        workspace('ws-parent', ['s-idle'], '/repo/asic/eda_vm'),
+        workspace('ws-child', ['s-run'], '/repo/asic/eda_vm/tangram'),
+      ],
+    })
+
+    expect(badgeOf('ws-parent')).toBeNull()
+    expect(rowOf('ws-parent')?.hasAttribute(BUSY)).toBe(false)
+    expect(badgeOf('ws-child')).not.toBeNull()
+  })
+
+  it('animates a parent whose own Session is running, whatever a nested child does', () => {
+    document.body.innerHTML = browserList(workspaceRow('ws-parent'), workspaceRow('ws-child'))
+    mount(catalog(['s-parent', true], ['s-child', false]), {
+      items: [
+        workspace('ws-parent', ['s-parent'], '/repo/asic/eda_vm'),
+        workspace('ws-child', ['s-child'], '/repo/asic/eda_vm/tangram'),
+      ],
+    })
+
+    expect(badgeOf('ws-parent')).not.toBeNull()
+    expect(badgeOf('ws-child')).toBeNull()
+  })
+
+  it('animates both when both own a running Session', () => {
+    document.body.innerHTML = browserList(workspaceRow('ws-parent'), workspaceRow('ws-child'))
+    mount(catalog(['s-parent', true], ['s-child', true]), {
+      items: [
+        workspace('ws-parent', ['s-parent'], '/repo/asic/eda_vm'),
+        workspace('ws-child', ['s-child'], '/repo/asic/eda_vm/tangram'),
       ],
     })
 
     expect(badgeOf('ws-parent')).not.toBeNull()
     expect(badgeOf('ws-child')).not.toBeNull()
-  })
-
-  it('does not treat a sibling directory as a descendant', () => {
-    document.body.innerHTML = browserList(workspaceRow('ws-parent'), workspaceRow('ws-other'))
-    mount(catalog(['s-1', true]), {
-      items: [workspace('ws-parent', [], '/repo'), workspace('ws-other', ['s-1'], '/repo-other')],
-    })
-
-    expect(badgeOf('ws-parent')).toBeNull()
-    expect(badgeOf('ws-other')).not.toBeNull()
   })
 })
 

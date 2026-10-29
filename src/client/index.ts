@@ -21,8 +21,9 @@
  * Two behaviour notes worth stating out loud:
  * - an **expanded** Workspace keeps its folder glyph; its Session rows already
  *   show their own loaders, and the header is not carrying information there;
- * - a **parent** of a folding hierarchy animates when a nested Workspace is busy,
- *   because the child row is off screen whenever the parent is folded.
+ * - a row speaks only for **its own** accounted Sessions. A nested Workspace that
+ *   runs does not light its parent: the parent's Sessions are what its title
+ *   claims, and the nested row is the one that owns that activity.
  *
  * The badge is decorative (`aria-hidden`), matches the shipped loader's colour
  * token, and is hidden together with the folder cell by the shipped hover rule

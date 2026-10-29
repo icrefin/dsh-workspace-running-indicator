@@ -7,7 +7,7 @@ sidebar already shows on a Session row, restored where folding hid it.
 **English** | [简体中文](README.zh-CN.md)
 
 [![License](https://img.shields.io/github/license/icrefin/dsh-workspace-running-indicator?style=flat-square)](LICENSE)
-[![Release](https://img.shields.io/github/v/release/icrefin/dsh-workspace-running-indicator?style=flat-square)](https://github.com/icrefin/dsh-workspace-running-indicator/releases/tag/v0.1.2)
+[![Release](https://img.shields.io/github/v/release/icrefin/dsh-workspace-running-indicator?style=flat-square)](https://github.com/icrefin/dsh-workspace-running-indicator/releases/tag/v0.1.3)
 [![CI](https://img.shields.io/github/actions/workflow/status/icrefin/dsh-workspace-running-indicator/ci.yml?branch=main&style=flat-square)](https://github.com/icrefin/dsh-workspace-running-indicator/actions/workflows/ci.yml)
 [![Last commit](https://img.shields.io/github/last-commit/icrefin/dsh-workspace-running-indicator?style=flat-square)](https://github.com/icrefin/dsh-workspace-running-indicator/commits/main)
 [![Stars](https://img.shields.io/github/stars/icrefin/dsh-workspace-running-indicator?style=flat-square)](https://github.com/icrefin/dsh-workspace-running-indicator/stargazers)
@@ -49,7 +49,7 @@ decorates the single cell it needs instead, from the page side:
 |---|---|
 | 1 | read `ctx.sessions.list` (the live Session catalog) and `ctx.workspaces.list` (the Workspace projection) |
 | 2 | a Workspace is busy when a member Session reports `running`, or has a running direct subagent (`external` children excluded, as the sidebar excludes them) |
-| 3 | walk parent directories, so a folded parent animates while a nested Workspace is busy |
+| 3 | keep membership the only key: a row animates for its own accounted Sessions, never for a nested Workspace's |
 | 4 | for each row that is `role="treeitem"`, keyed `workspace:<id>`, and `aria-expanded="false"`, overlay the spinner in its 16×20 icon cell |
 | 5 | keep it that way through a `MutationObserver` on the list — folding, expanding, re-mounts, new Workspaces |
 
@@ -60,10 +60,12 @@ loaded yet. A folded group therefore asks the same question its expanded rows
 already ask. Archived Sessions never count — an archived row carries no live status
 either.
 
-**Only folded rows animate.** An expanded Workspace's Session rows each show the
-loader where the work is, so its header is not carrying information and keeps its
-folder glyph. On hover the shipped rule swaps the icon cell for the disclosure
-chevron, which hides the badge with it.
+**Only folded rows animate, and only for their own Sessions.** An expanded
+Workspace's rows each show the loader where the work is, so its header keeps its
+folder glyph. A nested Workspace that runs never lights its parent: `eda_vm` (with
+nothing running) stays a folder while `eda_vm/tangram` animates — fixed in 0.1.3,
+where directory containment used to reach the parent. On hover the shipped rule
+swaps the icon cell for the disclosure chevron, which hides the badge with it.
 
 **The artwork is the shipped loader.** Geometry, the two 1.5s keyframes, the 14px
 edge, the start-time pinning and the reduced-motion fallback are copied from
@@ -90,11 +92,11 @@ Build and pack from this repository:
 ```sh
 pnpm install
 pnpm check                       # typecheck · build · vitest
-pnpm run pack                    # -> dist/dsh-workspace-running-indicator-0.1.2.tgz
+pnpm run pack                    # -> dist/dsh-workspace-running-indicator-0.1.3.tgz
 ```
 
 Then, in the DeepSeek Harness desktop app, open **Settings → Plugins**, install
-`dist/dsh-workspace-running-indicator-0.1.2.tgz`, and **restart the app**. A bundle
+`dist/dsh-workspace-running-indicator-0.1.3.tgz`, and **restart the app**. A bundle
 added to a running profile is not in the module resolution computed at boot, so its
 entry fails to import until the next start. The web client additionally needs a
 page reload after that restart.
@@ -102,9 +104,10 @@ page reload after that restart.
 ## Usage
 
 There is nothing to configure: fold a Workspace whose Session is working and its
-folder glyph becomes the loader; the folder returns when the run ends. A parent
-Workspace animates while a nested one is busy, and an expanded Workspace keeps its
-folder glyph because its Session rows already show their own loaders.
+folder glyph becomes the loader; the folder returns when the run ends. A nested
+Workspace animates on its own row and never on its parent's, and an expanded
+Workspace keeps its folder glyph because its Session rows already show their own
+loaders.
 
 ## What it does not do
 
@@ -139,10 +142,10 @@ scripts/dev-profile.sh remove
 |---|---|
 | Typecheck: host half, browser half, tests | clean |
 | Built `lib/client.js` behind a fake `window.__ModuleLoader__` | registers under the package name, exports `apply` + `inject: ['sessions', 'workspaces']`, requests no module |
-| Behaviour in jsdom against the built bundle | 16 cases: folded/busy badge in the icon cell, idle, expanded, Ungrouped, nested parent and child, non-nested sibling, subagent activity, external-child exclusion, archived Sessions, expand removes it, run start/stop, re-mount, disposal, throwing store, unreadable snapshot |
+| Behaviour in jsdom against the built bundle | 17 cases: folded/busy badge in the icon cell, idle, expanded, Ungrouped, idle parent beside a running nested child, parent-only, both, subagent activity, external-child exclusion, archived Sessions, expand removes it, run start/stop, re-mount, disposal, throwing store, unreadable snapshot |
 | Stylesheet | one tag, idempotent install, removable, theme tokens only, copied keyframes and reduced-motion |
 | Composition in an isolated dsh profile | the Loader row composed and the boot graph served the bundle (`/plugins/??dsh-workspace-running-indicator/client.js&rev=…` → 200) |
-| Real engine | the built bundle driven in headless Chrome against the shipped row markup and styles painted exactly one badge, on the folded busy row |
+| Real engine | the built bundle driven in headless Chrome against the shipped row markup and styles painted exactly one badge, on the folded busy row; re-run for 0.1.3 with the reported `eda_vm` / `eda_vm/tangram` shape, which left `eda_vm` untouched |
 | Live GUI | confirmed in the desktop app after a restart |
 
 The two screenshots are renders of the built bundle against the shipped sidebar
