@@ -15,11 +15,14 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { browserList, sessionRow, workspaceRow } from './fixture.ts'
 import { built, fakeStore, loadClientBundle, type ClientBundleExports, type FakeStore } from './loader.ts'
 
-/** Attribute this plugin sets on a row whose badge is drawn. */
-const BUSY = 'data-dsh-wsr-busy'
+/** Attribute this plugin sets on a row while an overlay is drawn; its value is the state. */
+const STATE = 'data-dsh-wsr-state'
 
-/** Attribute marking the badge element itself. */
+/** Attribute marking the loader overlay. */
 const BADGE = 'data-dsh-wsr-badge'
+
+/** Attribute marking the completion dot. */
+const DOT = 'data-dsh-wsr-dot'
 
 /** One mounted plugin instance with its effect disposers. */
 interface Mounted {
@@ -108,6 +111,15 @@ function badgeOf(workspaceId: string): Element | null {
   return document.querySelector(`[data-row-key="workspace:${workspaceId}"] [${BADGE}]`)
 }
 
+/**
+ * The completion dot inside one Workspace row.
+ * @param workspaceId - Workspace id.
+ * @returns the dot, or null.
+ */
+function dotOf(workspaceId: string): Element | null {
+  return document.querySelector(`[data-row-key="workspace:${workspaceId}"] [${DOT}]`)
+}
+
 beforeAll(() => {
   if (!built) throw new Error('lib/client.js is missing: run `pnpm build` before the specs')
 })
@@ -127,7 +139,7 @@ describe('folded Workspace with a working Session', () => {
     mount(catalog(['s-1', true]), { items: [workspace('ws-a', ['s-1'])] })
 
     const row = rowOf('ws-a')
-    expect(row?.hasAttribute(BUSY)).toBe(true)
+    expect(row?.getAttribute(STATE)).toBe('running')
     const badge = badgeOf('ws-a')
     expect(badge).not.toBeNull()
     // Inside the first cell, beside the folder glyph — the cell keeps its box.
@@ -145,7 +157,7 @@ describe('folded Workspace with a working Session', () => {
     })
 
     expect(badgeOf('ws-a')).not.toBeNull()
-    expect(rowOf('ws-b')?.hasAttribute(BUSY)).toBe(false)
+    expect(rowOf('ws-b')?.getAttribute(STATE)).toBeNull()
     expect(badgeOf('ws-b')).toBeNull()
   })
 
@@ -153,7 +165,7 @@ describe('folded Workspace with a working Session', () => {
     document.body.innerHTML = browserList(workspaceRow('ws-a', { folded: false }), sessionRow('s-1'))
     mount(catalog(['s-1', true]), { items: [workspace('ws-a', ['s-1'])] })
 
-    expect(rowOf('ws-a')?.hasAttribute(BUSY)).toBe(false)
+    expect(rowOf('ws-a')?.getAttribute(STATE)).toBeNull()
     expect(badgeOf('ws-a')).toBeNull()
   })
 
@@ -161,7 +173,7 @@ describe('folded Workspace with a working Session', () => {
     document.body.innerHTML = browserList(workspaceRow(''))
     mount(catalog(['s-1', true]), { items: [] })
 
-    expect(document.querySelector('[data-row-key="workspace:"]')?.hasAttribute(BUSY)).toBe(false)
+    expect(document.querySelector('[data-row-key="workspace:"]')?.getAttribute(STATE)).toBeNull()
     expect(document.querySelector(`[${BADGE}]`)).toBeNull()
   })
 })
@@ -180,7 +192,7 @@ describe('nested Workspaces', () => {
     })
 
     expect(badgeOf('ws-parent')).toBeNull()
-    expect(rowOf('ws-parent')?.hasAttribute(BUSY)).toBe(false)
+    expect(rowOf('ws-parent')?.getAttribute(STATE)).toBeNull()
     expect(badgeOf('ws-child')).not.toBeNull()
   })
 
@@ -274,24 +286,29 @@ describe('the badge follows the page', () => {
     rowOf('ws-a')?.setAttribute('aria-expanded', 'true')
     await settle()
 
-    expect(rowOf('ws-a')?.hasAttribute(BUSY)).toBe(false)
+    expect(rowOf('ws-a')?.getAttribute(STATE)).toBeNull()
     expect(badgeOf('ws-a')).toBeNull()
     // The shipped glyph is visible again because the attribute is gone.
     expect(rowOf('ws-a')?.querySelector('span > svg')).not.toBeNull()
   })
 
-  it('draws the badge when a run starts, and removes it when the run ends', async () => {
+  it('swaps the loader for the completion dot when the run ends', async () => {
     document.body.innerHTML = browserList(workspaceRow('ws-a'))
     const { sessions } = mount(catalog(['s-1', false]), { items: [workspace('ws-a', ['s-1'])] })
     expect(badgeOf('ws-a')).toBeNull()
+    expect(dotOf('ws-a')).toBeNull()
 
     sessions.set(catalog(['s-1', true]))
     await settle()
     expect(badgeOf('ws-a')).not.toBeNull()
+    expect(dotOf('ws-a')).toBeNull()
+    expect(rowOf('ws-a')?.getAttribute(STATE)).toBe('running')
 
     sessions.set(catalog(['s-1', false]))
     await settle()
     expect(badgeOf('ws-a')).toBeNull()
+    expect(dotOf('ws-a')).not.toBeNull()
+    expect(rowOf('ws-a')?.getAttribute(STATE)).toBe('completed')
   })
 
   it('redraws a row the browser remounted', async () => {
@@ -313,13 +330,174 @@ describe('the badge follows the page', () => {
 
     dispose()
 
-    expect(rowOf('ws-a')?.hasAttribute(BUSY)).toBe(false)
+    expect(rowOf('ws-a')?.getAttribute(STATE)).toBeNull()
     expect(badgeOf('ws-a')).toBeNull()
     expect(sessions.listeners).toBe(0)
 
     sessions.set(catalog(['s-1', false]))
     await settle()
     expect(badgeOf('ws-a')).toBeNull()
+  })
+})
+
+describe('finished-but-unviewed work', () => {
+  /**
+   * A catalog row with the retention field the completion policy reads.
+   * @param id - Session id.
+   * @param running - run state.
+   * @param mainView - main-column references above zero mean "on screen".
+   * @returns the row.
+   */
+  function row(id: string, running: boolean, mainView = 0): Record<string, unknown> {
+    return { id, running, retainedBy: { mainView } }
+  }
+
+  /**
+   * A catalog snapshot built from explicit rows.
+   * @param rows - the rows, keyed by id.
+   * @returns the snapshot.
+   */
+  function snapshot(...rows: Record<string, unknown>[]): unknown {
+    const byId: Record<string, unknown> = {}
+    for (const entry of rows) byId[String(entry['id'])] = entry
+    return { ids: rows.map((entry) => String(entry['id'])), byId, phase: 'ready', projectionsBySession: {} }
+  }
+
+  it('reminds a folded Workspace once its run ends', async () => {
+    document.body.innerHTML = browserList(workspaceRow('ws-a'))
+    const { sessions } = mount(snapshot(row('s-1', true)), { items: [workspace('ws-a', ['s-1'])] })
+    expect(badgeOf('ws-a')).not.toBeNull()
+
+    sessions.set(snapshot(row('s-1', false)))
+    await settle()
+
+    expect(badgeOf('ws-a')).toBeNull()
+    const dot = dotOf('ws-a')
+    expect(dot).not.toBeNull()
+    expect(dot?.getAttribute('aria-hidden')).toBe('true')
+    expect(dot?.parentElement).toBe(rowOf('ws-a')?.firstElementChild)
+    expect(rowOf('ws-a')?.getAttribute(STATE)).toBe('completed')
+  })
+
+  it('clears the reminder when the Session is opened in the main column', async () => {
+    document.body.innerHTML = browserList(workspaceRow('ws-a'))
+    const { sessions } = mount(snapshot(row('s-1', true)), { items: [workspace('ws-a', ['s-1'])] })
+    sessions.set(snapshot(row('s-1', false)))
+    await settle()
+    expect(dotOf('ws-a')).not.toBeNull()
+
+    sessions.set(snapshot(row('s-1', false, 1)))
+    await settle()
+
+    expect(dotOf('ws-a')).toBeNull()
+    expect(rowOf('ws-a')?.getAttribute(STATE)).toBeNull()
+  })
+
+  it('never reminds for a run that finished in a watched Session', async () => {
+    document.body.innerHTML = browserList(workspaceRow('ws-a'))
+    const { sessions } = mount(snapshot(row('s-1', true, 1)), { items: [workspace('ws-a', ['s-1'])] })
+    sessions.set(snapshot(row('s-1', false, 1)))
+    await settle()
+
+    expect(dotOf('ws-a')).toBeNull()
+  })
+
+  it('does not invent a reminder for a Session that was already idle at mount', () => {
+    document.body.innerHTML = browserList(workspaceRow('ws-a'))
+    mount(snapshot(row('s-1', false)), { items: [workspace('ws-a', ['s-1'])] })
+
+    expect(dotOf('ws-a')).toBeNull()
+    expect(rowOf('ws-a')?.getAttribute(STATE)).toBeNull()
+  })
+
+  it('lets a fresh run replace the reminder with the loader', async () => {
+    document.body.innerHTML = browserList(workspaceRow('ws-a'))
+    const { sessions } = mount(snapshot(row('s-1', true)), { items: [workspace('ws-a', ['s-1'])] })
+    sessions.set(snapshot(row('s-1', false)))
+    await settle()
+    expect(dotOf('ws-a')).not.toBeNull()
+
+    sessions.set(snapshot(row('s-1', true)))
+    await settle()
+
+    expect(dotOf('ws-a')).toBeNull()
+    expect(badgeOf('ws-a')).not.toBeNull()
+  })
+
+  it('keeps the reminder until every completion in the Workspace is seen', async () => {
+    document.body.innerHTML = browserList(workspaceRow('ws-a'))
+    const { sessions } = mount(snapshot(row('s-1', true), row('s-2', true)), {
+      items: [workspace('ws-a', ['s-1', 's-2'])],
+    })
+    sessions.set(snapshot(row('s-1', false), row('s-2', true)))
+    await settle()
+    expect(dotOf('ws-a')).toBeNull()
+
+    sessions.set(snapshot(row('s-1', false), row('s-2', false)))
+    await settle()
+    expect(dotOf('ws-a')).not.toBeNull()
+
+    // Viewing one of the two leaves the other unread.
+    sessions.set(snapshot(row('s-1', false, 1), row('s-2', false)))
+    await settle()
+    expect(dotOf('ws-a')).not.toBeNull()
+
+    sessions.set(snapshot(row('s-1', false, 1), row('s-2', false, 1)))
+    await settle()
+    expect(dotOf('ws-a')).toBeNull()
+  })
+
+  it('gives the loader priority while another Session still works', async () => {
+    document.body.innerHTML = browserList(workspaceRow('ws-a'))
+    const { sessions } = mount(snapshot(row('s-1', true), row('s-2', true)), {
+      items: [workspace('ws-a', ['s-1', 's-2'])],
+    })
+    sessions.set(snapshot(row('s-1', false), row('s-2', true)))
+    await settle()
+
+    expect(badgeOf('ws-a')).not.toBeNull()
+    expect(dotOf('ws-a')).toBeNull()
+    expect(rowOf('ws-a')?.getAttribute(STATE)).toBe('running')
+  })
+
+  it('hides the reminder while expanded and restores it when folded again', async () => {
+    document.body.innerHTML = browserList(workspaceRow('ws-a'))
+    const { sessions } = mount(snapshot(row('s-1', true)), { items: [workspace('ws-a', ['s-1'])] })
+    sessions.set(snapshot(row('s-1', false)))
+    await settle()
+    expect(dotOf('ws-a')).not.toBeNull()
+
+    rowOf('ws-a')?.setAttribute('aria-expanded', 'true')
+    await settle()
+    expect(dotOf('ws-a')).toBeNull()
+
+    rowOf('ws-a')?.setAttribute('aria-expanded', 'false')
+    await settle()
+    expect(dotOf('ws-a')).not.toBeNull()
+  })
+
+  it('does not remind for an archived completion', async () => {
+    document.body.innerHTML = browserList(workspaceRow('ws-a'))
+    const { sessions, workspaces } = mount(snapshot(row('s-1', true)), { items: [workspace('ws-a', ['s-1'])] })
+    sessions.set(snapshot(row('s-1', false)))
+    await settle()
+
+    workspaces.set({ items: [workspace('ws-a', ['s-1'])], archivedSessionIds: ['s-1'] })
+    await settle()
+
+    expect(dotOf('ws-a')).toBeNull()
+  })
+
+  it("keeps a nested Workspace's completion off its parent", async () => {
+    document.body.innerHTML = browserList(workspaceRow('ws-parent'), workspaceRow('ws-child'))
+    const { sessions } = mount(snapshot(row('s-parent', false), row('s-child', true)), {
+      items: [workspace('ws-parent', ['s-parent']), workspace('ws-child', ['s-child'], '/repo/asic/eda_vm/tangram')],
+    })
+    sessions.set(snapshot(row('s-parent', false), row('s-child', false)))
+    await settle()
+
+    expect(dotOf('ws-parent')).toBeNull()
+    expect(dotOf('ws-child')).not.toBeNull()
   })
 })
 

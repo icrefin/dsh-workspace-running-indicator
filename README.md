@@ -1,13 +1,14 @@
 # dsh-workspace-running-indicator
 
-**A folded Workspace in DeepSeek Harness's sidebar turns its folder glyph into the
-in-progress loader while any Session inside it is working** — the status the
-sidebar already shows on a Session row, restored where folding hid it.
+**A folded Workspace in DeepSeek Harness's sidebar shows what its hidden Sessions
+are doing: the in-progress loader while one is working, and the green dot once a
+run finished unviewed** — the marks the sidebar already draws on a Session row,
+restored where folding hid them.
 
 **English** | [简体中文](README.zh-CN.md)
 
 [![License](https://img.shields.io/github/license/icrefin/dsh-workspace-running-indicator?style=flat-square)](LICENSE)
-[![Release](https://img.shields.io/github/v/release/icrefin/dsh-workspace-running-indicator?style=flat-square)](https://github.com/icrefin/dsh-workspace-running-indicator/releases/tag/v0.1.3)
+[![Release](https://img.shields.io/github/v/release/icrefin/dsh-workspace-running-indicator?style=flat-square)](https://github.com/icrefin/dsh-workspace-running-indicator/releases/tag/v0.2.0)
 [![CI](https://img.shields.io/github/actions/workflow/status/icrefin/dsh-workspace-running-indicator/ci.yml?branch=main&style=flat-square)](https://github.com/icrefin/dsh-workspace-running-indicator/actions/workflows/ci.yml)
 [![Last commit](https://img.shields.io/github/last-commit/icrefin/dsh-workspace-running-indicator?style=flat-square)](https://github.com/icrefin/dsh-workspace-running-indicator/commits/main)
 [![Stars](https://img.shields.io/github/stars/icrefin/dsh-workspace-running-indicator?style=flat-square)](https://github.com/icrefin/dsh-workspace-running-indicator/stargazers)
@@ -18,19 +19,21 @@ sidebar already shows on a Session row, restored where folding hid it.
 ## The problem
 
 A folded Workspace hides every Session row inside it. Its header then shows the
-same folder glyph whether three turns are running there or nothing has happened
-for a week — and the sidebar's own ongoing loader is still rendered inside the
-group, just with no row left to appear on.
+same folder glyph whether three turns are running there, a turn just finished with
+nobody looking, or nothing has happened for a week — while the row's own loader and
+green dot are still rendered inside the group, with no row left to appear on.
 
 ```
 Workspaces
-  ◌ app · folded, running      ← this plugin: the header itself is the status
-  ▢ dsh-plugins · idle
+  ◌ app · folded, running          ← this plugin: the header itself is the status
+  ● dsh-plugins · finished unviewed
+  ▢ ic_decryptor · idle
   ▾ research · expanded
-      ◌ literature review      ← shipped: a Session row's own loader
+      ● literature review          ← shipped: a Session row's own done dot
+      ◌ chip bring-up              ← shipped: its ongoing loader
 ```
 
-![A folded Workspace showing the in-progress loader](docs/images/workspace-badge.png)
+![A folded Workspace showing the loader and the completion dot](docs/images/workspace-badge.png)
 
 ## How it works
 
@@ -48,9 +51,9 @@ decorates the single cell it needs instead, from the page side:
 | Step | What happens |
 |---|---|
 | 1 | read `ctx.sessions.list` (the live Session catalog) and `ctx.workspaces.list` (the Workspace projection) |
-| 2 | a Workspace is busy when a member Session reports `running`, or has a running direct subagent (`external` children excluded, as the sidebar excludes them) |
-| 3 | keep membership the only key: a row animates for its own accounted Sessions, never for a nested Workspace's |
-| 4 | for each row that is `role="treeitem"`, keyed `workspace:<id>`, and `aria-expanded="false"`, overlay the spinner in its 16×20 icon cell |
+| 2 | a Workspace is **working** when a member Session reports `running`, or has a running direct subagent (`external` children excluded, as the sidebar excludes them); it is **finished-unviewed** when a member Session's run ended unwatched |
+| 3 | keep membership the only key: a row reports for its own accounted Sessions, never for a nested Workspace's |
+| 4 | for each row that is `role="treeitem"`, keyed `workspace:<id>`, and `aria-expanded="false"`, overlay the matching mark in its 16×20 icon cell: the loader, or the green dot |
 | 5 | keep it that way through a `MutationObserver` on the list — folding, expanding, re-mounts, new Workspaces |
 
 **Why the catalog is the right source.** `ctx.sessions.list.byId[id].running` is
@@ -60,19 +63,35 @@ loaded yet. A folded group therefore asks the same question its expanded rows
 already ask. Archived Sessions never count — an archived row carries no live status
 either.
 
-**Only folded rows animate, and only for their own Sessions.** An expanded
-Workspace's rows each show the loader where the work is, so its header keeps its
-folder glyph. A nested Workspace that runs never lights its parent: `eda_vm` (with
+**Working outranks finished.** A Workspace with a Session still running shows the
+loader; the green dot appears once everything it owns is quiet, which is the order
+the shipped row uses too. A fresh run in the same Session clears the dot again.
+
+**The completion dot mirrors the shipped policy.** The flag is not in the catalog —
+it is a process-local projection inside `dsh-client-ui-session`, reachable only
+through its React hooks — so `completion.ts` rebuilds it from the one signal that
+is: a `running` transition observed across snapshots. The rule is copied from that
+package's own status projection: mark when a run goes `true → false` and the
+Session is not the one on screen (`retainedBy.mainView > 0`); clear when it runs
+again, is opened in the main column, or is archived; seed a first sighting without
+marking anything. Two consequences are deliberate: a run that had already finished
+when the plugin mounted raises no reminder, and **unfolding does not acknowledge** —
+only opening the Session does, exactly as it clears the Session row's own dot.
+
+**Only folded rows carry a mark, and only for their own Sessions.** An expanded
+Workspace's rows each show their loader or dot where the work is, so its header
+keeps its folder glyph. A nested Workspace never lights its parent: `eda_vm` (with
 nothing running) stays a folder while `eda_vm/tangram` animates — fixed in 0.1.3,
 where directory containment used to reach the parent. On hover the shipped rule
-swaps the icon cell for the disclosure chevron, which hides the badge with it.
+swaps the icon cell for the disclosure chevron, which hides the overlay with it.
 
-**The artwork is the shipped loader.** Geometry, the two 1.5s keyframes, the 14px
-edge, the start-time pinning and the reduced-motion fallback are copied from
-`StateDot.module.css` under this plugin's own class prefix — the browser half
-imports no host component — and the colour is `--dsw-alias-label-tertiary`, the
-loader's own token. Pinning the phase is why a badge painted mid-run turns in step
-with the Session rows' loaders instead of starting wherever it happened to mount.
+**Both marks are the shipped artwork.** The loader copies `StateDot`'s geometry,
+its two 1.5s keyframes, the 14px edge, the start-time pinning and the
+reduced-motion fallback, in `--dsw-alias-label-tertiary`; the dot is that
+component's solid `done` core, 6px in `--dsw-alias-state-success-primary`. All of it
+is re-declared under this plugin's own class prefix, with no host component
+imported. Pinning the phase is why a badge painted mid-run turns in step with the
+Session rows' loaders instead of starting wherever it happened to mount.
 
 ![The plugin's loader beside the shipped Session loader](docs/images/loader-comparison.png)
 
@@ -92,11 +111,11 @@ Build and pack from this repository:
 ```sh
 pnpm install
 pnpm check                       # typecheck · build · vitest
-pnpm run pack                    # -> dist/dsh-workspace-running-indicator-0.1.3.tgz
+pnpm run pack                    # -> dist/dsh-workspace-running-indicator-0.2.0.tgz
 ```
 
 Then, in the DeepSeek Harness desktop app, open **Settings → Plugins**, install
-`dist/dsh-workspace-running-indicator-0.1.3.tgz`, and **restart the app**. A bundle
+`dist/dsh-workspace-running-indicator-0.2.0.tgz`, and **restart the app**. A bundle
 added to a running profile is not in the module resolution computed at boot, so its
 entry fails to import until the next start. The web client additionally needs a
 page reload after that restart.
@@ -104,10 +123,11 @@ page reload after that restart.
 ## Usage
 
 There is nothing to configure: fold a Workspace whose Session is working and its
-folder glyph becomes the loader; the folder returns when the run ends. A nested
-Workspace animates on its own row and never on its parent's, and an expanded
-Workspace keeps its folder glyph because its Session rows already show their own
-loaders.
+folder glyph becomes the loader. When the run ends the loader becomes the green
+dot, and the dot stays until you open that Session — or start it again. A nested
+Workspace reports on its own row and never on its parent's, and an expanded
+Workspace keeps its folder glyph because its Session rows already show both
+marks.
 
 ## What it does not do
 
@@ -115,8 +135,11 @@ loaders.
   browser half only paints one cell.
 - It does not change the Session rows, the fold watermark, the group ordering or
   the collapse behaviour.
-- The badge is decorative (`aria-hidden`); the row's accessible name is still the
-  Workspace title, so a screen-reader user gets no "in progress" announcement.
+- The marks are decorative (`aria-hidden`); the row's accessible name is still the
+  Workspace title, so a screen-reader user gets no "in progress" or "finished"
+  announcement.
+- The reminder is derived, not read: it is right about runs this page watched, and
+  silent about runs that finished before it loaded.
 - It keys off the row's own identity — `role="treeitem"`, `data-row-key`,
   `aria-expanded` — never a hashed CSS-module class. A future dsh that renames those
   markers makes the badge stop appearing (harmlessly), not misbehave.
@@ -142,10 +165,11 @@ scripts/dev-profile.sh remove
 |---|---|
 | Typecheck: host half, browser half, tests | clean |
 | Built `lib/client.js` behind a fake `window.__ModuleLoader__` | registers under the package name, exports `apply` + `inject: ['sessions', 'workspaces']`, requests no module |
-| Behaviour in jsdom against the built bundle | 17 cases: folded/busy badge in the icon cell, idle, expanded, Ungrouped, idle parent beside a running nested child, parent-only, both, subagent activity, external-child exclusion, archived Sessions, expand removes it, run start/stop, re-mount, disposal, throwing store, unreadable snapshot |
-| Stylesheet | one tag, idempotent install, removable, theme tokens only, copied keyframes and reduced-motion |
+| Behaviour in jsdom against the built bundle | 27 cases: loader and dot in the icon cell, idle, expanded, Ungrouped, idle parent beside a running nested child, parent-only, both, subagent activity, external-child exclusion, archived Sessions, expand removes the mark, run start/end with the dot replacing the loader, dot cleared by opening the Session, dot restored by folding, fresh run supersedes, per-Workspace acknowledgement, re-mount, disposal, throwing store, unreadable snapshot |
+| Completion policy, directly | 8 cases: seeding, unwatched completion, watched completion, later acknowledgement, supersede, archive, pending-vs-ready catalog, late row |
+| Stylesheet | one tag, idempotent install, removable, theme tokens only, copied keyframes, reduced-motion, success token for the dot |
 | Composition in an isolated dsh profile | the Loader row composed and the boot graph served the bundle (`/plugins/??dsh-workspace-running-indicator/client.js&rev=…` → 200) |
-| Real engine | the built bundle driven in headless Chrome against the shipped row markup and styles painted exactly one badge, on the folded busy row; re-run for 0.1.3 with the reported `eda_vm` / `eda_vm/tangram` shape, which left `eda_vm` untouched |
+| Real engine | the built bundle driven in headless Chrome against the shipped row markup and styles: the folded busy row painted exactly one loader (0.1.2), the reported `eda_vm` / `eda_vm/tangram` shape left `eda_vm` untouched (0.1.3), and a real run transition in 0.2.0 reported `app=completed/dot=yes run=running/dot=no idle=none/dot=no` |
 | Live GUI | confirmed in the desktop app after a restart |
 
 The two screenshots are renders of the built bundle against the shipped sidebar
@@ -157,16 +181,18 @@ stylesheet, not captures of the running app.
 src/
 ├── index.ts              # host half: the Loader row's inert entry point
 └── client/
-    ├── index.ts          # snapshots → busy set → observer → paint
-    ├── busy.ts           # which Workspaces hold working Sessions
-    ├── rows.ts           # the row/cell decorator and the badge element
-    ├── styles.ts         # the badge's rules and the tag installer
+    ├── index.ts          # snapshots → states → observer → paint
+    ├── activity.ts       # working ∪ finished-unviewed, per Workspace
+    ├── completion.ts     # the shipped completion-reminder policy, mirrored
+    ├── rows.ts           # the row/cell decorator and both overlays
+    ├── styles.ts         # the rules for loader + dot, and the tag installer
     └── contract.ts       # the two snapshots, read structurally
 test/
 ├── loader.ts             # the built bundle behind a fake module loader
 ├── fixture.ts            # the shipped row markup, as the plugin may read it
 ├── bundle.spec.ts        # loader id + exports
-├── badge.spec.ts         # the behaviour in jsdom (16 cases)
+├── badge.spec.ts         # the behaviour in jsdom (27 cases)
+├── completion.spec.ts    # the reminder policy on its own (8 cases)
 └── styles.spec.ts        # install / eviction / tokens
 scripts/
 ├── dev-profile.sh        # isolated dsh home for composition checks

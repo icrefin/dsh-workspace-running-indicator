@@ -1,6 +1,6 @@
 {
   "name": "dsh-workspace-running-indicator",
-  "version": "0.1.3",
+  "version": "0.2.0",
   "description": "Animate a folded Workspace icon in the dsh sidebar while one of its sessions is working",
   "keywords": [
     "deepseek-harness",

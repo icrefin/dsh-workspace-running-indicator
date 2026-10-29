@@ -1,26 +1,29 @@
 /**
- * The badge's rules, and the one installer that puts them on the page.
+ * The two overlays' rules, and the one installer that puts them on the page.
  *
- * The spinner artwork is the shipped ongoing loader, re-declared under this
- * plugin's own class prefix rather than imported: a client bundle must not reach
- * into `ui-primitives` for a component whose markup can change without notice.
- * The geometry, the two 1.5s keyframes and the reduced-motion fallback are copied
- * from `StateDot.module.css` so a folded Workspace's badge turns exactly like a
- * Session row's own loader, at the same 14px edge.
+ * Both states are the shipped marks, re-declared under this plugin's own names
+ * rather than imported: a client bundle must not reach into `ui-primitives` for a
+ * component whose markup can change without notice.
  *
- * Two rules carry the behaviour, and both are **structural** on purpose: the
+ * - **ongoing** copies `StateDot`'s loader — 14px edge, 24-unit viewBox, radius
+ *   9.5, 2px stroke, the two 1.5s keyframes and the reduced-motion fallback — so a
+ *   folded Workspace's badge turns exactly like a Session row's loader;
+ * - **done** copies `StateDot`'s solid dot: one 6px core in
+ *   `--dsw-alias-state-success-primary`, the same green a finished-unviewed
+ *   Session row draws.
+ *
+ * Three rules carry the behaviour, and all are **structural** on purpose: the
  * Workspace rows are the shipped browser's internal markup, so the plugin keys off
  * ARIA and the row-key attribute rather than a hashed CSS-module class name that
  * changes every build.
  *
- * - the first cell of a Workspace row hosts the badge as an absolute overlay, so
+ * - the first cell of a Workspace row hosts the overlay as an absolute child, so
  *   the folder glyph keeps its 16px box and the title never moves;
- * - while `data-dsh-wsr-busy` is set, that cell's own glyph is transparent, so the
+ * - while `data-dsh-wsr-state` is set that cell's own glyph is transparent, so the
  *   overlay is what the user sees. The shipped hover rule replaces the whole cell
- *   with the disclosure chevron, which hides the badge with it.
- *
- * Colours come from `--dsw-alias-*` tokens only, so both themes are covered by one
- * declaration and no dark-mode override is needed.
+ *   with the disclosure chevron, which hides the overlay with it;
+ * - the loader is neutral (`--dsw-alias-label-tertiary`), the completion dot keeps
+ *   the success colour — one token for each, no dark-mode override needed.
  *
  * @module dsh-workspace-running-indicator/client/styles
  */
@@ -32,19 +35,29 @@ const TAG_ID = `${PLUGIN_ID}/workspace-running.css`
 /** Classic-selector form of "a Workspace row", shared with the decorator. */
 export const WORKSPACE_ROW = '[role="treeitem"][data-row-key^="workspace:"]'
 
-/** Set on a Workspace row while its badge is present. */
-export const BUSY_ATTRIBUTE = 'data-dsh-wsr-busy'
+/**
+ * Set on a Workspace row while an overlay is drawn.
+ *
+ * Its value is the state: `running` (the loader) or `completed` (the green dot).
+ */
+export const STATE_ATTRIBUTE = 'data-dsh-wsr-state'
 
-/** Marks the badge element this plugin owns inside a Workspace row. */
+/** Marks the loader overlay this plugin owns inside a Workspace row. */
 export const BADGE_ATTRIBUTE = 'data-dsh-wsr-badge'
+
+/** Marks the completion-dot overlay this plugin owns inside a Workspace row. */
+export const DOT_ATTRIBUTE = 'data-dsh-wsr-dot'
 
 /** Rule text, hoisted so the installer and its tests share one source. */
 export const BADGE_CSS = [
   `${WORKSPACE_ROW}>span:first-child{position:relative}`,
-  `${WORKSPACE_ROW}[${BUSY_ATTRIBUTE}]>span:first-child>svg{opacity:0}`,
-  `[${BADGE_ATTRIBUTE}]{position:absolute;inset:0;display:flex;align-items:center;`,
-  'justify-content:center;pointer-events:none;color:var(--dsw-alias-label-tertiary)}',
+  `${WORKSPACE_ROW}[${STATE_ATTRIBUTE}]>span:first-child>svg{opacity:0}`,
+  `[${BADGE_ATTRIBUTE}],[${DOT_ATTRIBUTE}]{position:absolute;inset:0;display:flex;`,
+  'align-items:center;justify-content:center;pointer-events:none}',
+  `[${BADGE_ATTRIBUTE}]{color:var(--dsw-alias-label-tertiary)}`,
   `[${BADGE_ATTRIBUTE}]>svg{display:block;transform-origin:center}`,
+  `[${DOT_ATTRIBUTE}]::after{content:'';display:block;width:6px;height:6px;`,
+  'border-radius:50%;corner-shape:round;background:var(--dsw-alias-state-success-primary)}',
   '.dsh-wsr-motion{transform-origin:center;animation:dsh-wsr-spin 1.5s linear infinite}',
   '.dsh-wsr-track,.dsh-wsr-arc{fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round}',
   '.dsh-wsr-track{opacity:.25}',

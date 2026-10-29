@@ -1,5 +1,5 @@
 /**
- * Painting the badge onto the shipped Workspace rows.
+ * Painting a folded Workspace header with what its Sessions are doing.
  *
  * `ui-workspace` renders a Workspace header as one `role="treeitem"` element
  * carrying `data-row-key="workspace:<workspaceId>"`, and it exposes no seat on
@@ -9,22 +9,30 @@
  * using the two attributes that are the row's own identity rather than any hashed
  * CSS-module class name:
  *
- * - `data-row-key` names the Workspace, which is how the busy set is addressed;
+ * - `data-row-key` names the Workspace, which is how the state map is addressed;
  * - `aria-expanded` (the tree item's ARIA state) says whether the row is folded.
  *
- * The badge is appended into the row's first cell — the 16×20 icon slot that also
- * holds the folder glyph — as an absolutely positioned overlay. That cell is the
+ * The overlay is appended into the row's first cell — the 16×20 icon slot that
+ * also holds the folder glyph — as an absolutely positioned node. That cell is the
  * shipped browser's own DOM, so the one rule this plugin obeys is *append only*:
  * React owns the cell's children and keeps them; an extra trailing node that is
  * out of flow neither changes layout nor breaks a patch. A remount replaces both
- * row and badge together, and the observer in `index.ts` paints the new row.
+ * row and overlay together, and the observer in `index.ts` paints the new row.
+ *
+ * Two states share the cell, and only one overlay is present at a time:
+ *
+ * | state | overlay | what it means |
+ * | --- | --- | --- |
+ * | `running` | the shipped ongoing loader | a Session inside is working now |
+ * | `completed` | the shipped green dot | a run ended and nobody opened it since |
  *
  * @module dsh-workspace-running-indicator/client/rows
  */
 
-import { BADGE_ATTRIBUTE, BUSY_ATTRIBUTE, WORKSPACE_ROW } from './styles.ts'
+import type { WorkspaceState } from './activity.ts'
+import { BADGE_ATTRIBUTE, DOT_ATTRIBUTE, STATE_ATTRIBUTE, WORKSPACE_ROW } from './styles.ts'
 
-/** SVG namespace for the badge artwork. */
+/** SVG namespace for the loader artwork. */
 const SVG_NS = 'http://www.w3.org/2000/svg'
 
 /** Prefix of `data-row-key` for a Workspace row. */
@@ -79,7 +87,7 @@ export function iconCellOf(row: Element): Element | undefined {
 }
 
 /**
- * Build the badge: the shipped ongoing loader, under this plugin's classes.
+ * Build the loader overlay: the shipped ongoing loader, under this plugin's names.
  *
  * Geometry and stroke values match `StateDot`'s ongoing state (14px edge, 24-unit
  * viewBox, radius 9.5, 2px stroke) so the badge turns at the same weight as the
@@ -118,33 +126,56 @@ export function createBadge(target: Document): Element {
 }
 
 /**
- * Draw the badge on one row, without rewriting what is already there.
+ * Build the completion overlay: the shipped green dot.
  *
- * Idempotent by construction: a row that is already marked costs one attribute
- * read and one selector test, so an observer storm cannot turn into a write storm.
+ * `StateDot`'s `done` state is a 10px box painting one 6px core in
+ * `--dsw-alias-state-success-primary`; the overlay centres that same 6px core in
+ * the icon cell, so a folded Workspace's reminder is the dot its own Session rows
+ * would draw.
  *
- * @param row - a folded, busy Workspace header row.
- * @param cell - its icon slot.
- * @param target - document to create the badge into.
- * @returns whether the row changed.
+ * @param target - document to create into.
+ * @returns the decorative dot element.
  */
-export function markRow(row: Element, cell: Element, target: Document): boolean {
+export function createDot(target: Document): Element {
+  const dot = target.createElement('span')
+  dot.setAttribute(DOT_ATTRIBUTE, '')
+  dot.setAttribute('aria-hidden', 'true')
+  return dot
+}
+
+/**
+ * Ensure exactly one overlay of the requested kind is present.
+ *
+ * @param cell - the icon slot.
+ * @param attribute - the overlay's marker attribute.
+ * @param build - factory used when the overlay is missing.
+ * @param other - the marker attribute of the overlay that must not be there.
+ * @param target - document to create into.
+ * @returns whether the cell changed.
+ */
+function ensureOverlay(
+  cell: Element,
+  attribute: string,
+  build: (target: Document) => Element,
+  other: string,
+  target: Document,
+): boolean {
   let changed = false
-  if (!row.hasAttribute(BUSY_ATTRIBUTE)) {
-    row.setAttribute(BUSY_ATTRIBUTE, '')
+  for (const stale of cell.querySelectorAll(`:scope > [${other}]`)) {
+    stale.remove()
     changed = true
   }
-  if (cell.querySelector(`:scope > [${BADGE_ATTRIBUTE}]`) === null) {
-    const badge = createBadge(target)
-    cell.appendChild(badge)
-    pinPhase(badge)
+  if (cell.querySelector(`:scope > [${attribute}]`) === null) {
+    const overlay = build(target)
+    cell.appendChild(overlay)
+    if (attribute === BADGE_ATTRIBUTE) pinPhase(overlay)
     changed = true
   }
   return changed
 }
 
 /**
- * Start the badge's animation at document time zero, like the shipped loader.
+ * Start the loader's animation at document time zero, like the shipped spinner.
  *
  * A CSS animation starts when its element is inserted, so badges painted at
  * different moments — and the Session rows' own loaders — would rotate out of
@@ -163,6 +194,31 @@ function pinPhase(badge: Element): void {
 }
 
 /**
+ * Draw one state on a row, without rewriting what is already there.
+ *
+ * Idempotent by construction: a row already in the requested state costs one
+ * attribute read and one selector test, so an observer storm cannot turn into a
+ * write storm.
+ *
+ * @param row - a folded Workspace header row.
+ * @param cell - its icon slot.
+ * @param state - what the row should show.
+ * @param target - document to create the overlay into.
+ * @returns whether the row changed.
+ */
+export function markRow(row: Element, cell: Element, state: WorkspaceState, target: Document): boolean {
+  let changed = false
+  if (row.getAttribute(STATE_ATTRIBUTE) !== state) {
+    row.setAttribute(STATE_ATTRIBUTE, state)
+    changed = true
+  }
+  changed = state === 'running'
+    ? ensureOverlay(cell, BADGE_ATTRIBUTE, createBadge, DOT_ATTRIBUTE, target) || changed
+    : ensureOverlay(cell, DOT_ATTRIBUTE, createDot, BADGE_ATTRIBUTE, target) || changed
+  return changed
+}
+
+/**
  * Return one row to its shipped appearance.
  *
  * @param row - any Workspace header row.
@@ -170,40 +226,41 @@ function pinPhase(badge: Element): void {
  */
 export function clearRow(row: Element): boolean {
   let changed = false
-  if (row.hasAttribute(BUSY_ATTRIBUTE)) {
-    row.removeAttribute(BUSY_ATTRIBUTE)
+  if (row.hasAttribute(STATE_ATTRIBUTE)) {
+    row.removeAttribute(STATE_ATTRIBUTE)
     changed = true
   }
-  for (const badge of row.querySelectorAll(`[${BADGE_ATTRIBUTE}]`)) {
-    badge.remove()
+  for (const overlay of row.querySelectorAll(`[${BADGE_ATTRIBUTE}], [${DOT_ATTRIBUTE}]`)) {
+    overlay.remove()
     changed = true
   }
   return changed
 }
 
 /**
- * Reconcile every Workspace row under `root` with the busy set.
+ * Reconcile every Workspace row under `root` with the state map.
  *
- * Folded and busy draws the badge; anything else — expanded, idle, the ungrouped
- * section, a row whose markup is not recognised — is left in its shipped state,
- * and a badge left over from an earlier pass is removed.
+ * Folded and reported draws the overlay; anything else — expanded, idle, the
+ * ungrouped section, a row whose markup is not recognised — is left in its shipped
+ * state, and an overlay left over from an earlier pass is removed.
  *
  * @param root - subtree to reconcile (the document, in production).
- * @param busy - Workspace ids whose folded row should animate.
+ * @param states - Workspace ids mapped to what their folded header should show.
  * @param target - document owning the rows; defaults to `root`'s owner document.
  * @returns how many rows were changed.
  */
 export function syncRows(
   root: Document | DocumentFragment | Element,
-  busy: ReadonlySet<string>,
+  states: ReadonlyMap<string, WorkspaceState>,
   target: Document | null = root instanceof Document ? root : root.ownerDocument,
 ): number {
   let changed = 0
   for (const row of root.querySelectorAll(WORKSPACE_ROW)) {
     const workspaceId = workspaceIdOf(row)
-    const cell = workspaceId !== undefined && busy.has(workspaceId) && isFolded(row) ? iconCellOf(row) : undefined
-    if (cell !== undefined && target !== null) {
-      if (markRow(row, cell, target)) changed += 1
+    const state = workspaceId === undefined ? undefined : states.get(workspaceId)
+    const cell = state !== undefined && isFolded(row) ? iconCellOf(row) : undefined
+    if (cell !== undefined && state !== undefined && target !== null) {
+      if (markRow(row, cell, state, target)) changed += 1
     } else if (clearRow(row)) {
       changed += 1
     }

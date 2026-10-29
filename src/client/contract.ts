@@ -16,11 +16,24 @@
  * @module dsh-workspace-running-indicator/client/contract
  */
 
+/**
+ * The local retention counts a Session row carries.
+ *
+ * `mainView` counts the references the Conversation holds on this Session: it is
+ * above zero exactly while the Session is the one open in the main column, which
+ * is how both `ui-workspace` and this plugin decide whether a completion was
+ * seen.
+ */
+export interface RetainInfoLike {
+  readonly mainView?: number | undefined
+}
+
 /** One catalog row, as far as this plugin reads it. */
 export interface SessionSummaryLike {
   readonly id?: string | undefined
   /** Host-asserted live run state; the sidebar's own fallback for a session row. */
   readonly running?: boolean | undefined
+  readonly retainedBy?: RetainInfoLike | undefined
 }
 
 /** One entry of a parent Session's direct-subagent catalog. */
@@ -42,8 +55,16 @@ export interface SessionValuesLike {
 
 /** The Session catalog snapshot (`ctx.sessions.list.getSnapshot()`). */
 export interface SessionsSnapshotLike {
+  /** Catalog order; the shipped reconcile loop walks it. */
+  readonly ids?: readonly string[] | undefined
   readonly byId?: Readonly<Record<string, SessionSummaryLike | undefined>> | undefined
   readonly projectionsBySession?: Readonly<Record<string, SessionValuesLike | undefined>> | undefined
+  /**
+   * `pending` until the Host's first list answer lands. The shipped policy only
+   * forgets vanished Sessions once it is `ready`, so a reconnect does not wipe
+   * completion reminders.
+   */
+  readonly phase?: string | undefined
 }
 
 /**
