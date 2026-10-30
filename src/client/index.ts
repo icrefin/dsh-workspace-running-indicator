@@ -2,59 +2,81 @@
  * dsh-workspace-running-indicator — browser half.
  *
  * Folding a Workspace in the sidebar hides every Session row inside it, so the
- * shipped browser draws the same folder glyph for a workspace where three turns
- * are running, one where a turn just finished unviewed, and one where nothing has
- * happened for a week. Both marks — the ongoing loader and the green done dot —
- * are still rendered inside a folded group; there is simply no row left to show
- * them on.
+ * shipped browser draws the same folder glyph for a workspace where a Session is
+ * waiting for an answer, one where three turns are running, one where a turn just
+ * finished unviewed, and one where nothing has happened for a week. All three
+ * marks — the yellow waiting dot, the ongoing loader and the green done dot — are
+ * still rendered inside a folded group; there is simply no row left to show them
+ * on.
  *
  * This bundle does not replace the browser, and it does not add a seat: the
- * workspace header has none. It watches the two snapshots the client already
- * holds, derives what each Workspace has to report (`activity.ts`, with the
- * completion reminder mirrored from the shipped policy in `completion.ts`), and
- * paints the matching mark into the header's icon cell of every **folded** row
- * that has one (`rows.ts` + `styles.ts`).
+ * workspace header has none. It watches the snapshots the client already holds,
+ * derives what each Workspace has to report (`activity.ts`, with the completion
+ * reminder mirrored from the shipped policy in `completion.ts`), and paints the
+ * matching mark into the header's icon cell of every **folded** row that has one
+ * (`rows.ts` + `styles.ts`).
  *
  * Why the catalog is the right source: `ctx.sessions.list` carries the Host's
  * live run state per Session (`running`), updated on every status change, which
  * is exactly the fallback `ui-workspace` itself applies for a row whose live
  * status has not been loaded yet — and transitions in that field are what the
- * shipped completion policy reads too.
+ * shipped completion policy reads too. The waiting mark is read from
+ * `ctx.uiSession.sessionStatus`, the unified projection the shipped row itself
+ * consults, so the yellow dot stands for the same pending interaction it does on
+ * a Session row.
  *
- * Three behaviour notes worth stating out loud:
+ * Four behaviour notes worth stating out loud:
  * - an **expanded** Workspace keeps its folder glyph; its Session rows already
- *   show their own loader and dot, and the header is not carrying information
- *   there;
+ *   show their own marks, and the header is not carrying information there;
  * - a row speaks only for **its own** accounted Sessions. A nested Workspace that
  *   runs does not light its parent: the parent's Sessions are what its title
  *   claims, and the nested row is the one that owns that activity;
- * - work in progress outranks a completion reminder, matching the shipped row
- *   order, so a Workspace with a running Session shows the loader and only falls
- *   back to the green dot once everything it owns is quiet.
+ * - a waiting Session outranks a running one, and work in progress outranks a
+ *   completion reminder — the shipped row order is pending, ongoing, done, so a
+ *   folded Workspace shows the mark its most urgent Session row would;
+ * - a direct subagent's pending interaction does not reach its parent, mirroring
+ *   the shipped row, which adopts a running child's loader but never its pending
+ *   mark.
  *
- * The badge is decorative (`aria-hidden`), matches the shipped loader's colour
- * token, and is hidden together with the folder cell by the shipped hover rule
- * that reveals the disclosure chevron.
+ * The marks are decorative (`aria-hidden`), match the shipped tokens, and are
+ * hidden together with the folder cell by the shipped hover rule that reveals the
+ * disclosure chevron.
  *
  * An external plugin must never take the web shell down: `apply` is wrapped, and
- * every read of a foreign snapshot is guarded in `busy.ts` / here.
+ * every read of a foreign snapshot is guarded here.
  *
  * @module dsh-workspace-running-indicator/client
  */
 
-import { activeSessionIds, workspaceStates, type WorkspaceState } from './activity.ts'
+import { activeSessionIds, waitingSessionIds, workspaceStates, type WorkspaceState } from './activity.ts'
 import { createCompletionTracker, type CompletionTracker } from './completion.ts'
-import type { SessionsSnapshotLike, SnapshotSource, WorkspacesSnapshotLike } from './contract.ts'
+import type {
+  SessionStatusSnapshotLike,
+  SessionsSnapshotLike,
+  SnapshotSource,
+  WorkspacesSnapshotLike,
+} from './contract.ts'
 import { clearRow, syncRows } from './rows.ts'
 import { WORKSPACE_ROW, installStyles } from './styles.ts'
 
-/** Services this bundle waits for: the two client-side state projections. */
-export const inject = ['sessions', 'workspaces']
+/** Services this bundle waits for: the client-side state projections. */
+export const inject = ['sessions', 'workspaces', 'uiSession']
 
-/** The read face of the two services this plugin consumes. */
+/** The read face of the services this plugin consumes. */
 export interface ClientStateServices {
   readonly sessions: { readonly list: SnapshotSource<SessionsSnapshotLike> }
   readonly workspaces: { readonly list: SnapshotSource<WorkspacesSnapshotLike> }
+  /**
+   * `dsh-client-ui-session`'s unified status projection.
+   *
+   * The fiber declares this service — that declaration is what makes
+   * `ctx.uiSession` readable through the guarded facade — and the read is still
+   * written as an optional chain, so an absent or partially shaped service costs
+   * only the waiting dot instead of throwing.
+   */
+  readonly uiSession?: {
+    readonly sessionStatus?: SnapshotSource<SessionStatusSnapshotLike> | undefined
+  } | undefined
 }
 
 /** Structural face of the client root context this plugin uses. */
@@ -94,12 +116,15 @@ function subscribe(source: SnapshotSource<unknown> | undefined, listener: () => 
 }
 
 /**
- * Read both snapshots, fold the catalog into the completion tracker, and derive
+ * Read the snapshots, fold the catalog into the completion tracker, and derive
  * what every Workspace has to report.
  *
- * @param ctx - client context carrying the two projections.
+ * The status projection is read separately: if it is absent or throws, the
+ * loader and the done dot still work and only the waiting dot is lost.
+ *
+ * @param ctx - client context carrying the projections.
  * @param tracker - the completion projection to advance; one per mount.
- * @returns Workspace id → state; empty when either read fails.
+ * @returns Workspace id → state; empty when a required read fails.
  */
 function readStates(ctx: ClientStateServices, tracker: CompletionTracker): Map<string, WorkspaceState> {
   try {
@@ -108,10 +133,26 @@ function readStates(ctx: ClientStateServices, tracker: CompletionTracker): Map<s
     if (sessions === undefined || workspaces === undefined) return new Map()
     const archived = new Set(workspaces.archivedSessionIds ?? [])
     tracker.reconcile(sessions, archived)
-    return workspaceStates(workspaces, activeSessionIds(sessions, archived), tracker.unread())
+    const waiting = waitingSessionIds(readStatuses(ctx), archived)
+    return workspaceStates(workspaces, activeSessionIds(sessions, archived), tracker.unread(), waiting)
   } catch (error) {
     console.warn('[dsh-workspace-running-indicator] the Workspace states could not be derived', error)
     return new Map()
+  }
+}
+
+/**
+ * Read the unified Session status projection, degrading to "no signal".
+ *
+ * @param ctx - client context.
+ * @returns the projection snapshot, or undefined when the shell has none.
+ */
+function readStatuses(ctx: ClientStateServices): SessionStatusSnapshotLike | undefined {
+  try {
+    return ctx.uiSession?.sessionStatus?.getSnapshot()
+  } catch (error) {
+    console.warn('[dsh-workspace-running-indicator] the Session statuses could not be read', error)
+    return undefined
   }
 }
 
@@ -167,6 +208,7 @@ function install(ctx: ClientStateServices): () => void {
 
   const stopSessions = subscribe(ctx.sessions?.list, refresh)
   const stopWorkspaces = subscribe(ctx.workspaces?.list, refresh)
+  const stopStatuses = subscribe(ctx.uiSession?.sessionStatus, refresh)
 
   let observer: MutationObserver | undefined
   if (typeof MutationObserver === 'function') {
@@ -180,6 +222,7 @@ function install(ctx: ClientStateServices): () => void {
     disposed = true
     stopSessions()
     stopWorkspaces()
+    stopStatuses()
     observer?.disconnect()
     for (const row of scope.querySelectorAll(WORKSPACE_ROW)) clearRow(row)
   }

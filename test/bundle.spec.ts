@@ -17,7 +17,7 @@ describe.skipIf(!built)('built client bundle', () => {
   it('exports the client plugin face the harness mounts', () => {
     const { exports } = loadClientBundle()
     expect(typeof exports.apply).toBe('function')
-    expect(exports.inject).toEqual(['sessions', 'workspaces'])
+    expect(exports.inject).toEqual(['sessions', 'workspaces', 'uiSession'])
   })
 
   it('requests no module: the browser half has no runtime dependencies', () => {

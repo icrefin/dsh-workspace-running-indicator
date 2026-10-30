@@ -1,7 +1,7 @@
 {
   "name": "dsh-workspace-running-indicator",
-  "version": "0.2.1",
-  "description": "Animate a folded Workspace icon in the dsh sidebar while one of its sessions is working",
+  "version": "0.3.0",
+  "description": "Mirror a folded Workspace's Session status in the dsh sidebar: the waiting dot, the in-progress loader and the finished-unviewed dot, restored",
   "keywords": [
     "deepseek-harness",
     "dsh",
@@ -9,7 +9,8 @@
     "cordis-plugin",
     "sidebar",
     "workspace",
-    "session-status"
+    "session-status",
+    "waiting-indicator"
   ],
   "license": "MIT",
   "type": "module",
@@ -50,7 +51,8 @@
       "platform": "web",
       "inject": [
         "@deepseek-ai/dsh-api-session-controller",
-        "@deepseek-ai/dsh-api-workspace-controller"
+        "@deepseek-ai/dsh-api-workspace-controller",
+        "@deepseek-ai/dsh-client-ui-session"
       ]
     }
   },

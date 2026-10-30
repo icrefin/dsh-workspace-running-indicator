@@ -4,9 +4,9 @@
  *
  * The fixture reproduces the shipped row markers only — a tree item keyed
  * `workspace:<id>`, its `aria-expanded` fold state, and the glyph cell — and the
- * assertions cover what the plugin promises: a folded Workspace with a working
- * Session animates, every other row keeps its folder glyph, and toggling the fold
- * or the run state puts the page back the way it was.
+ * assertions cover what the plugin promises: a folded Workspace with a waiting or
+ * working Session shows its mark, every other row keeps its folder glyph, and
+ * toggling the fold or the Session's state puts the page back the way it was.
  *
  * @module dsh-workspace-running-indicator/test/badge
  */
@@ -24,6 +24,9 @@ const BADGE = 'data-dsh-wsr-badge'
 /** Attribute marking the completion dot. */
 const DOT = 'data-dsh-wsr-dot'
 
+/** Attribute marking the waiting-for-an-answer dot. */
+const WAITING = 'data-dsh-wsr-waiting'
+
 /** One mounted plugin instance with its effect disposers. */
 interface Mounted {
   dispose(): void
@@ -33,22 +36,31 @@ interface Mounted {
 const mounted: Mounted[] = []
 
 /**
- * Build the catalog/workspace stores and mount the plugin over them.
+ * Build the state stores and mount the plugin over them.
  * @param sessions - initial Session catalog snapshot.
  * @param workspaces - initial Workspace projection snapshot.
- * @returns the two stores and the mount's disposer.
+ * @param statuses - initial unified status projection, by Session id.
+ * @returns the stores and the mount's disposer.
  */
 function mount(
   sessions: unknown,
   workspaces: unknown,
-): { sessions: FakeStore<unknown>; workspaces: FakeStore<unknown>; dispose(): void } {
+  statuses: Map<string, unknown> = new Map(),
+): {
+  sessions: FakeStore<unknown>
+  workspaces: FakeStore<unknown>
+  statuses: FakeStore<unknown>
+  dispose(): void
+} {
   const sessionStore = fakeStore<unknown>(sessions)
   const workspaceStore = fakeStore<unknown>(workspaces)
+  const statusStore = fakeStore<unknown>(statuses)
   const disposers: (() => void)[] = []
   const exports: ClientBundleExports = loadClientBundle().exports
   exports.apply({
     sessions: { list: sessionStore },
     workspaces: { list: workspaceStore },
+    uiSession: { sessionStatus: statusStore },
     effect: (callback: () => (() => void) | void): void => {
       const dispose = callback()
       if (typeof dispose === 'function') disposers.push(dispose)
@@ -60,7 +72,7 @@ function mount(
     },
   }
   mounted.push(instance)
-  return { sessions: sessionStore, workspaces: workspaceStore, dispose: instance.dispose }
+  return { sessions: sessionStore, workspaces: workspaceStore, statuses: statusStore, dispose: instance.dispose }
 }
 
 /**
@@ -83,6 +95,21 @@ function catalog(...rows: [string, boolean][]): unknown {
   const byId: Record<string, { id: string; running: boolean }> = {}
   for (const [id, running] of rows) byId[id] = { id, running }
   return { ids: rows.map(([id]) => id), byId, phase: 'ready', projectionsBySession: {} }
+}
+
+/**
+ * A unified status snapshot from `[id, pending kind]` pairs.
+ *
+ * A `undefined` kind builds a row with no pending interaction, so a test can move
+ * a Session from waiting to answered without touching its catalog row.
+ *
+ * @param rows - Session id and pending-interaction kind.
+ * @returns the status map.
+ */
+function statuses(...rows: [string, string | undefined][]): Map<string, unknown> {
+  const map = new Map<string, unknown>()
+  for (const [id, kind] of rows) map.set(id, kind === undefined ? { running: false } : { running: true, pendingInteraction: { kind } })
+  return map
 }
 
 /**
@@ -118,6 +145,15 @@ function badgeOf(workspaceId: string): Element | null {
  */
 function dotOf(workspaceId: string): Element | null {
   return document.querySelector(`[data-row-key="workspace:${workspaceId}"] [${DOT}]`)
+}
+
+/**
+ * The waiting dot inside one Workspace row.
+ * @param workspaceId - Workspace id.
+ * @returns the dot, or null.
+ */
+function waitingOf(workspaceId: string): Element | null {
+  return document.querySelector(`[data-row-key="workspace:${workspaceId}"] [${WAITING}]`)
 }
 
 beforeAll(() => {
@@ -501,6 +537,171 @@ describe('finished-but-unviewed work', () => {
   })
 })
 
+describe('a Session waiting for an answer', () => {
+  it('draws the yellow waiting dot in the icon cell', () => {
+    document.body.innerHTML = browserList(workspaceRow('ws-a'))
+    mount(catalog(['s-1', true]), { items: [workspace('ws-a', ['s-1'])] }, statuses(['s-1', 'question']))
+
+    const row = rowOf('ws-a')
+    expect(row?.getAttribute(STATE)).toBe('waiting')
+    const dot = waitingOf('ws-a')
+    expect(dot).not.toBeNull()
+    expect(dot?.getAttribute('aria-hidden')).toBe('true')
+    // Inside the first cell, beside the folder glyph — the cell keeps its box.
+    expect(dot?.parentElement).toBe(row?.firstElementChild)
+    // Exactly one overlay at a time.
+    expect(badgeOf('ws-a')).toBeNull()
+    expect(dotOf('ws-a')).toBeNull()
+  })
+
+  it('treats an approval and a plan review as waiting too', () => {
+    document.body.innerHTML = browserList(workspaceRow('ws-a'), workspaceRow('ws-b'), workspaceRow('ws-c'))
+    mount(catalog(['s-a', true], ['s-b', true], ['s-c', false]), {
+      items: [workspace('ws-a', ['s-a']), workspace('ws-b', ['s-b']), workspace('ws-c', ['s-c'])],
+    }, statuses(['s-a', 'approval'], ['s-b', 'plan-review']))
+
+    expect(waitingOf('ws-a')).not.toBeNull()
+    expect(waitingOf('ws-b')).not.toBeNull()
+    expect(waitingOf('ws-c')).toBeNull()
+  })
+
+  it('draws nothing for a pending kind the sidebar does not know', () => {
+    document.body.innerHTML = browserList(workspaceRow('ws-a'))
+    mount(catalog(['s-1', false]), { items: [workspace('ws-a', ['s-1'])] }, statuses(['s-1', 'unknown-kind']))
+
+    expect(rowOf('ws-a')?.getAttribute(STATE)).toBeNull()
+    expect(waitingOf('ws-a')).toBeNull()
+    expect(dotOf('ws-a')).toBeNull()
+  })
+
+  it('outranks the loader while the Session also runs', () => {
+    document.body.innerHTML = browserList(workspaceRow('ws-a'))
+    mount(catalog(['s-1', true]), { items: [workspace('ws-a', ['s-1'])] }, statuses(['s-1', 'question']))
+
+    expect(rowOf('ws-a')?.getAttribute(STATE)).toBe('waiting')
+    expect(waitingOf('ws-a')).not.toBeNull()
+    expect(badgeOf('ws-a')).toBeNull()
+  })
+
+  it('outranks the completion dot, and hands back to it once answered', async () => {
+    document.body.innerHTML = browserList(workspaceRow('ws-a'))
+    const { sessions, statuses: statusStore } = mount(
+      catalog(['s-1', true]),
+      { items: [workspace('ws-a', ['s-1'])] },
+      statuses(['s-1', 'question']),
+    )
+    expect(waitingOf('ws-a')).not.toBeNull()
+
+    // The run ends while the question is still open: waiting stays primary.
+    sessions.set(catalog(['s-1', false]))
+    await settle()
+    expect(rowOf('ws-a')?.getAttribute(STATE)).toBe('waiting')
+    expect(dotOf('ws-a')).toBeNull()
+
+    // Answering it uncovers the completion reminder underneath.
+    statusStore.set(statuses(['s-1', undefined]))
+    await settle()
+    expect(rowOf('ws-a')?.getAttribute(STATE)).toBe('completed')
+    expect(waitingOf('ws-a')).toBeNull()
+    expect(dotOf('ws-a')).not.toBeNull()
+  })
+
+  it('hands back to the loader once answered while the run continues', async () => {
+    document.body.innerHTML = browserList(workspaceRow('ws-a'))
+    const { statuses: statusStore } = mount(
+      catalog(['s-1', true]),
+      { items: [workspace('ws-a', ['s-1'])] },
+      statuses(['s-1', 'question']),
+    )
+    expect(waitingOf('ws-a')).not.toBeNull()
+
+    statusStore.set(statuses(['s-1', undefined]))
+    await settle()
+
+    expect(rowOf('ws-a')?.getAttribute(STATE)).toBe('running')
+    expect(waitingOf('ws-a')).toBeNull()
+    expect(badgeOf('ws-a')).not.toBeNull()
+  })
+
+  it('leaves an expanded Workspace alone — its Session row carries the dot', () => {
+    document.body.innerHTML = browserList(workspaceRow('ws-a', { folded: false }), sessionRow('s-1'))
+    mount(catalog(['s-1', true]), { items: [workspace('ws-a', ['s-1'])] }, statuses(['s-1', 'question']))
+
+    expect(rowOf('ws-a')?.getAttribute(STATE)).toBeNull()
+    expect(waitingOf('ws-a')).toBeNull()
+  })
+
+  it('lights only the Workspace that owns the waiting Session', () => {
+    document.body.innerHTML = browserList(workspaceRow('ws-a'), workspaceRow('ws-b'))
+    mount(catalog(['s-a', true], ['s-b', true]), {
+      items: [workspace('ws-a', ['s-a']), workspace('ws-b', ['s-b'])],
+    }, statuses(['s-b', 'question']))
+
+    expect(waitingOf('ws-a')).toBeNull()
+    expect(waitingOf('ws-b')).not.toBeNull()
+  })
+
+  it("keeps a nested child's pending question off its parent", () => {
+    document.body.innerHTML = browserList(workspaceRow('ws-parent'), workspaceRow('ws-child'))
+    mount(catalog(['s-parent', false], ['s-child', false]), {
+      items: [
+        workspace('ws-parent', ['s-parent'], '/repo/asic/eda_vm'),
+        workspace('ws-child', ['s-child'], '/repo/asic/eda_vm/tangram'),
+      ],
+    }, statuses(['s-parent', undefined], ['s-child', 'question']))
+
+    expect(waitingOf('ws-parent')).toBeNull()
+    expect(waitingOf('ws-child')).not.toBeNull()
+  })
+
+  it("does not adopt a direct subagent's pending interaction", () => {
+    document.body.innerHTML = browserList(workspaceRow('ws-a'))
+    mount(
+      {
+        byId: { 's-1': { id: 's-1', running: false }, 's-child': { id: 's-child', running: true } },
+        ids: ['s-1', 's-child'],
+        phase: 'ready',
+        projectionsBySession: { 's-1': { values: { subagentCatalog: [{ id: 's-child', mode: 'one-shot' }] } } },
+      },
+      { items: [workspace('ws-a', ['s-1'])] },
+      statuses(['s-child', 'question']),
+    )
+
+    // The shipped parent row adopts a running child's loader, never its pending
+    // mark; the child's answer belongs to the child's own conversation.
+    expect(waitingOf('ws-a')).toBeNull()
+    expect(badgeOf('ws-a')).not.toBeNull()
+  })
+
+  it('does not paint for an archived Session', () => {
+    document.body.innerHTML = browserList(workspaceRow('ws-a'))
+    mount(catalog(['s-1', false]), {
+      items: [workspace('ws-a', ['s-1'])],
+      archivedSessionIds: ['s-1'],
+    }, statuses(['s-1', 'question']))
+
+    expect(rowOf('ws-a')?.getAttribute(STATE)).toBeNull()
+    expect(waitingOf('ws-a')).toBeNull()
+  })
+
+  it('removes the waiting dot when the plugin is disposed', () => {
+    document.body.innerHTML = browserList(workspaceRow('ws-a'))
+    const { dispose } = mount(
+      catalog(['s-1', true]),
+      { items: [workspace('ws-a', ['s-1'])] },
+      statuses(['s-1', 'question']),
+    )
+    expect(waitingOf('ws-a')).not.toBeNull()
+
+    dispose()
+
+    expect(rowOf('ws-a')?.getAttribute(STATE)).toBeNull()
+    expect(waitingOf('ws-a')).toBeNull()
+    // The shipped folder glyph is visible again.
+    expect(rowOf('ws-a')?.querySelector('span > svg')).not.toBeNull()
+  })
+})
+
 describe('degrading instead of breaking the page', () => {
   it('survives a store whose subscribe throws', () => {
     document.body.innerHTML = browserList(workspaceRow('ws-a'))
@@ -530,6 +731,34 @@ describe('degrading instead of breaking the page', () => {
 
     // The initial read still paints; only the subscription is lost.
     expect(badgeOf('ws-a')).not.toBeNull()
+    for (const dispose of disposers) dispose()
+  })
+
+  it('keeps the catalog marks when the status projection cannot be read', () => {
+    document.body.innerHTML = browserList(workspaceRow('ws-a'))
+    const disposers: (() => void)[] = []
+    expect(() => {
+      loadClientBundle().exports.apply({
+        sessions: { list: fakeStore<unknown>(catalog(['s-1', true])) },
+        workspaces: { list: fakeStore<unknown>({ items: [workspace('ws-a', ['s-1'])] }) },
+        uiSession: {
+          sessionStatus: {
+            getSnapshot: () => {
+              throw new Error('not connected')
+            },
+            subscribe: () => () => {},
+          },
+        },
+        effect: (callback: () => (() => void) | void): void => {
+          const dispose = callback()
+          if (typeof dispose === 'function') disposers.push(dispose)
+        },
+      })
+    }).not.toThrow()
+
+    // No pending signal: the loader still reports the run.
+    expect(badgeOf('ws-a')).not.toBeNull()
+    expect(waitingOf('ws-a')).toBeNull()
     for (const dispose of disposers) dispose()
   })
 

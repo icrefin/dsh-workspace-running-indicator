@@ -19,10 +19,11 @@
  * out of flow neither changes layout nor breaks a patch. A remount replaces both
  * row and overlay together, and the observer in `index.ts` paints the new row.
  *
- * Two states share the cell, and only one overlay is present at a time:
+ * Three states share the cell, and only one overlay is present at a time:
  *
  * | state | overlay | what it means |
  * | --- | --- | --- |
+ * | `waiting` | the shipped yellow dot | a Session inside is waiting for an answer |
  * | `running` | the shipped ongoing loader | a Session inside is working now |
  * | `completed` | the shipped green dot | a run ended and nobody opened it since |
  *
@@ -30,7 +31,7 @@
  */
 
 import type { WorkspaceState } from './activity.ts'
-import { BADGE_ATTRIBUTE, DOT_ATTRIBUTE, STATE_ATTRIBUTE, WORKSPACE_ROW } from './styles.ts'
+import { BADGE_ATTRIBUTE, DOT_ATTRIBUTE, STATE_ATTRIBUTE, WAITING_ATTRIBUTE, WORKSPACE_ROW } from './styles.ts'
 
 /** SVG namespace for the loader artwork. */
 const SVG_NS = 'http://www.w3.org/2000/svg'
@@ -144,12 +145,31 @@ export function createDot(target: Document): Element {
 }
 
 /**
+ * Build the waiting overlay: the shipped yellow dot.
+ *
+ * `StateDot`'s `warning` state is the same 10px box and 6px core, painted in
+ * `--dsw-alias-state-warn-primary` — the colour a Session row turns while a
+ * question, approval or plan review is waiting for the user. The overlay repeats
+ * that core, so a folded Workspace asks for the answer in the same yellow its own
+ * Session row would.
+ *
+ * @param target - document to create into.
+ * @returns the decorative dot element.
+ */
+export function createWaitingDot(target: Document): Element {
+  const dot = target.createElement('span')
+  dot.setAttribute(WAITING_ATTRIBUTE, '')
+  dot.setAttribute('aria-hidden', 'true')
+  return dot
+}
+
+/**
  * Ensure exactly one overlay of the requested kind is present.
  *
  * @param cell - the icon slot.
  * @param attribute - the overlay's marker attribute.
  * @param build - factory used when the overlay is missing.
- * @param other - the marker attribute of the overlay that must not be there.
+ * @param others - the marker attributes of the overlays that must not be there.
  * @param target - document to create into.
  * @returns whether the cell changed.
  */
@@ -157,13 +177,15 @@ function ensureOverlay(
   cell: Element,
   attribute: string,
   build: (target: Document) => Element,
-  other: string,
+  others: readonly string[],
   target: Document,
 ): boolean {
   let changed = false
-  for (const stale of cell.querySelectorAll(`:scope > [${other}]`)) {
-    stale.remove()
-    changed = true
+  for (const other of others) {
+    for (const stale of cell.querySelectorAll(`:scope > [${other}]`)) {
+      stale.remove()
+      changed = true
+    }
   }
   if (cell.querySelector(`:scope > [${attribute}]`) === null) {
     const overlay = build(target)
@@ -212,9 +234,17 @@ export function markRow(row: Element, cell: Element, state: WorkspaceState, targ
     row.setAttribute(STATE_ATTRIBUTE, state)
     changed = true
   }
-  changed = state === 'running'
-    ? ensureOverlay(cell, BADGE_ATTRIBUTE, createBadge, DOT_ATTRIBUTE, target) || changed
-    : ensureOverlay(cell, DOT_ATTRIBUTE, createDot, BADGE_ATTRIBUTE, target) || changed
+  switch (state) {
+    case 'waiting':
+      changed = ensureOverlay(cell, WAITING_ATTRIBUTE, createWaitingDot, [BADGE_ATTRIBUTE, DOT_ATTRIBUTE], target) || changed
+      break
+    case 'running':
+      changed = ensureOverlay(cell, BADGE_ATTRIBUTE, createBadge, [DOT_ATTRIBUTE, WAITING_ATTRIBUTE], target) || changed
+      break
+    case 'completed':
+      changed = ensureOverlay(cell, DOT_ATTRIBUTE, createDot, [BADGE_ATTRIBUTE, WAITING_ATTRIBUTE], target) || changed
+      break
+  }
   return changed
 }
 
@@ -230,7 +260,7 @@ export function clearRow(row: Element): boolean {
     row.removeAttribute(STATE_ATTRIBUTE)
     changed = true
   }
-  for (const overlay of row.querySelectorAll(`[${BADGE_ATTRIBUTE}], [${DOT_ATTRIBUTE}]`)) {
+  for (const overlay of row.querySelectorAll(`[${BADGE_ATTRIBUTE}], [${DOT_ATTRIBUTE}], [${WAITING_ATTRIBUTE}]`)) {
     overlay.remove()
     changed = true
   }

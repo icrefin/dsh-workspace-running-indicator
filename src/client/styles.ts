@@ -1,10 +1,13 @@
 /**
- * The two overlays' rules, and the one installer that puts them on the page.
+ * The three overlays' rules, and the one installer that puts them on the page.
  *
- * Both states are the shipped marks, re-declared under this plugin's own names
+ * Every state is a shipped mark, re-declared under this plugin's own names
  * rather than imported: a client bundle must not reach into `ui-primitives` for a
  * component whose markup can change without notice.
  *
+ * - **waiting** copies `StateDot`'s `warning` state: one 6px core in
+ *   `--dsw-alias-state-warn-primary`, the yellow a Session row draws while a
+ *   question, approval or plan review waits for the user;
  * - **ongoing** copies `StateDot`'s loader — 14px edge, 24-unit viewBox, radius
  *   9.5, 2px stroke, the two 1.5s keyframes and the reduced-motion fallback — so a
  *   folded Workspace's badge turns exactly like a Session row's loader;
@@ -22,8 +25,8 @@
  * - while `data-dsh-wsr-state` is set that cell's own glyph is transparent, so the
  *   overlay is what the user sees. The shipped hover rule replaces the whole cell
  *   with the disclosure chevron, which hides the overlay with it;
- * - the loader is neutral (`--dsw-alias-label-tertiary`), the completion dot keeps
- *   the success colour — one token for each, no dark-mode override needed.
+ * - the loader is neutral (`--dsw-alias-label-tertiary`), the two dots keep their
+ *   state tokens — one colour each, no dark-mode override needed.
  *
  * @module dsh-workspace-running-indicator/client/styles
  */
@@ -38,7 +41,8 @@ export const WORKSPACE_ROW = '[role="treeitem"][data-row-key^="workspace:"]'
 /**
  * Set on a Workspace row while an overlay is drawn.
  *
- * Its value is the state: `running` (the loader) or `completed` (the green dot).
+ * Its value is the state: `waiting` (the yellow dot), `running` (the loader) or
+ * `completed` (the green dot).
  */
 export const STATE_ATTRIBUTE = 'data-dsh-wsr-state'
 
@@ -48,16 +52,21 @@ export const BADGE_ATTRIBUTE = 'data-dsh-wsr-badge'
 /** Marks the completion-dot overlay this plugin owns inside a Workspace row. */
 export const DOT_ATTRIBUTE = 'data-dsh-wsr-dot'
 
+/** Marks the waiting-dot overlay this plugin owns inside a Workspace row. */
+export const WAITING_ATTRIBUTE = 'data-dsh-wsr-waiting'
+
 /** Rule text, hoisted so the installer and its tests share one source. */
 export const BADGE_CSS = [
   `${WORKSPACE_ROW}>span:first-child{position:relative}`,
   `${WORKSPACE_ROW}[${STATE_ATTRIBUTE}]>span:first-child>svg{opacity:0}`,
-  `[${BADGE_ATTRIBUTE}],[${DOT_ATTRIBUTE}]{position:absolute;inset:0;display:flex;`,
+  `[${BADGE_ATTRIBUTE}],[${DOT_ATTRIBUTE}],[${WAITING_ATTRIBUTE}]{position:absolute;inset:0;display:flex;`,
   'align-items:center;justify-content:center;pointer-events:none}',
   `[${BADGE_ATTRIBUTE}]{color:var(--dsw-alias-label-tertiary)}`,
   `[${BADGE_ATTRIBUTE}]>svg{display:block;transform-origin:center}`,
-  `[${DOT_ATTRIBUTE}]::after{content:'';display:block;width:6px;height:6px;`,
-  'border-radius:50%;corner-shape:round;background:var(--dsw-alias-state-success-primary)}',
+  `[${DOT_ATTRIBUTE}]::after,[${WAITING_ATTRIBUTE}]::after{content:'';display:block;`,
+  'width:6px;height:6px;border-radius:50%;corner-shape:round}',
+  `[${DOT_ATTRIBUTE}]::after{background:var(--dsw-alias-state-success-primary)}`,
+  `[${WAITING_ATTRIBUTE}]::after{background:var(--dsw-alias-state-warn-primary)}`,
   '.dsh-wsr-motion{transform-origin:center;animation:dsh-wsr-spin 1.5s linear infinite}',
   '.dsh-wsr-track,.dsh-wsr-arc{fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round}',
   '.dsh-wsr-track{opacity:.25}',

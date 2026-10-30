@@ -10,7 +10,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { BADGE_ATTRIBUTE, DOT_ATTRIBUTE, STATE_ATTRIBUTE, WORKSPACE_ROW, installStyles } from '../src/client/styles.ts'
+import { BADGE_ATTRIBUTE, DOT_ATTRIBUTE, STATE_ATTRIBUTE, WAITING_ATTRIBUTE, WORKSPACE_ROW, installStyles } from '../src/client/styles.ts'
 
 /**
  * Find this plugin's style tag.
@@ -26,6 +26,7 @@ describe('badge styles', () => {
     expect(STATE_ATTRIBUTE).toBe('data-dsh-wsr-state')
     expect(BADGE_ATTRIBUTE).toBe('data-dsh-wsr-badge')
     expect(DOT_ATTRIBUTE).toBe('data-dsh-wsr-dot')
+    expect(WAITING_ATTRIBUTE).toBe('data-dsh-wsr-waiting')
   })
 
   it('installs one tag and leaves it alone on a second call', () => {
@@ -43,7 +44,7 @@ describe('badge styles', () => {
     document.querySelectorAll('style[data-plugin="dsh-workspace-running-indicator"]').forEach((tag) => tag.remove())
     const dispose = installStyles()
     const css = styleTag()?.textContent ?? ''
-    expect(css).toContain('[data-dsh-wsr-badge],[data-dsh-wsr-dot]{position:absolute')
+    expect(css).toContain('[data-dsh-wsr-badge],[data-dsh-wsr-dot],[data-dsh-wsr-waiting]{position:absolute')
     expect(css).toContain('[data-dsh-wsr-state]>span:first-child>svg{opacity:0}')
     expect(css).toContain('dsh-wsr-spin 1.5s linear infinite')
     expect(css).toContain('dsh-wsr-dash 1.5s ease-in-out infinite')
@@ -52,6 +53,8 @@ describe('badge styles', () => {
     expect(css).toContain('var(--dsw-alias-label-tertiary)')
     // The completion dot keeps the shipped success token, like a finished row.
     expect(css).toContain('background:var(--dsw-alias-state-success-primary)')
+    // The waiting dot keeps the shipped warning token of a row awaiting an answer.
+    expect(css).toContain('background:var(--dsw-alias-state-warn-primary)')
     expect(css).not.toMatch(/#[0-9a-fA-F]{3,8}\b/)
     dispose()
   })

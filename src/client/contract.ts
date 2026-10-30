@@ -1,5 +1,5 @@
 /**
- * The two browser-side snapshots this plugin reads, as it reads them.
+ * The browser-side snapshots this plugin reads, as it reads them.
  *
  * These are **structural** faces, not the shipped types: a client bundle is
  * compiled against no harness `.d.ts`, and the store shapes belong to packages
@@ -12,6 +12,11 @@
  *   `byId[id].running` is the Host-asserted, live-updated run state.
  * - `ctx.workspaces.list` — `@deepseek-ai/dsh-api-workspace-controller`'s
  *   Workspace projection; each item owns its Session membership in manual order.
+ * - `ctx.uiSession.sessionStatus` — `@deepseek-ai/dsh-client-ui-session`'s
+ *   unified per-Session status: the same projection the shipped row reads to
+ *   decide between `waiting`, `ongoing`, `done` and `idle`. Its
+ *   `pendingInteraction` is what makes a row's dot yellow while a question,
+ *   approval or plan review waits for the user.
  *
  * @module dsh-workspace-running-indicator/client/contract
  */
@@ -97,3 +102,34 @@ export interface SnapshotSource<T> {
   /** @returns the unsubscribe callback. */
   subscribe(listener: () => void): () => void
 }
+
+/**
+ * How a Session is currently asking a human for an answer.
+ *
+ * `dsh-client-ui-session` publishes the interaction it is holding; the sidebar's
+ * own row draws the yellow `warning` dot for the three kinds it understands
+ * (`approval`, `plan-review`, `question`) and for nothing else.
+ */
+export interface PendingInteractionLike {
+  /** `approval`, `plan-review`, `question`; any other value draws no status. */
+  readonly kind?: string | undefined
+}
+
+/** One Session's unified status row. */
+export interface SessionStatusLike {
+  /** Live run state, as the status projection last observed it. */
+  readonly running?: boolean | undefined
+  /** Set exactly while the Session waits for a human answer. */
+  readonly pendingInteraction?: PendingInteractionLike | undefined
+  /** The projection's own finished-unviewed flag, when present. */
+  readonly completionUnread?: boolean | undefined
+}
+
+/**
+ * The unified status projection of `dsh-client-ui-session`
+ * (`ctx.uiSession.sessionStatus`), keyed by Session id.
+ *
+ * This is the source the shipped Session rows themselves read, so the pending
+ * interaction this plugin acts on is the exact one the yellow dot stands for.
+ */
+export type SessionStatusSnapshotLike = ReadonlyMap<string, SessionStatusLike | undefined>
