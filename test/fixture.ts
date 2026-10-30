@@ -1,7 +1,7 @@
 /**
  * The shipped sidebar markup, as far as this plugin may look at it.
  *
- * Copied from `ui-workspace`'s `Rows` module at dsh 0.2.1-rc.3: a Workspace header
+ * Copied from `ui-workspace`'s `Rows` module at dsh 0.2.1-rc.5: a Workspace header
  * is a flex row whose first cell is the 16×20 glyph slot, followed by the hover
  * chevron cell, the title column and the hover actions. The class names are the
  * module's hashes and are reproduced only so the fixture looks like the real

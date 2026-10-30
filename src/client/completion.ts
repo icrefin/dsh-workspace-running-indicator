@@ -9,7 +9,7 @@
  * catalog does carry: the `running` flag, observed across snapshots.
  *
  * The rule is copied from `dsh-client-ui-session`'s `RemoteSessionStatus` (dsh
- * 0.2.1-rc.3), deliberately, because a reminder that disagrees with the Session
+ * 0.2.1-rc.5), deliberately, because a reminder that disagrees with the Session
  * row's own dot is worse than no reminder:
  *
  * ```js

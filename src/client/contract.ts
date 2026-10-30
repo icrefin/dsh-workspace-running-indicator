@@ -6,7 +6,7 @@
  * this plugin does not own. Every field is optional because a field a future
  * host drops must degrade to "no signal", never to a thrown read.
  *
- * Sources of truth (dsh 0.2.1-rc.3):
+ * Sources of truth (dsh 0.2.1-rc.5):
  * - `ctx.sessions.list` — `@deepseek-ai/dsh-api-session-controller`'s
  *   `ClientSessions.list`, the catalog snapshot the sidebar's session rows read.
  *   `byId[id].running` is the Host-asserted, live-updated run state.
