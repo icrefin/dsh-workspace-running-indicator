@@ -1,6 +1,6 @@
 {
   "name": "dsh-workspace-running-indicator",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "Mirror a folded Workspace's Session status in the dsh sidebar: the waiting dot, the in-progress loader and the finished-unviewed dot, restored",
   "keywords": [
     "deepseek-harness",
@@ -16,7 +16,7 @@
   "type": "module",
   "engines": {
     "node": ">=24.9.0",
-    "dsh": ">=0.2.2-rc.1 <0.2.3-0"
+    "dsh": ">=0.2.2-rc.2 <0.2.3-0"
   },
   "main": "lib/index.js",
   "types": "lib/types/index.d.ts",

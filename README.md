@@ -8,7 +8,7 @@ the **yellow waiting dot** a Session row draws while a question, approval or pla
 review waits for the user, the **in-progress** loader it draws while it is
 working, and the **green dot** it draws when a run finished unviewed.
 
-Tested against **dsh 0.2.2-rc.1** (desktop and web UI).
+Tested against **dsh 0.2.2-rc.2** (desktop and web UI).
 
 ```
 Workspaces
@@ -114,7 +114,7 @@ starting wherever it happened to mount.
 ```sh
 pnpm install
 pnpm check                      # typecheck three projects, build, vitest
-pnpm run pack                   # -> dist/dsh-workspace-running-indicator-0.3.1.tgz
+pnpm run pack                   # -> dist/dsh-workspace-running-indicator-0.3.2.tgz
 ```
 
 The desktop profile is owned by the Electron application, so `dsh plugin add`

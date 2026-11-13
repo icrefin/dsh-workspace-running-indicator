@@ -71,7 +71,7 @@ Workspaces
 
 ## 环境要求
 
-- DeepSeek Harness **0.2.2-rc.1**（桌面版或 Web UI）—— 插件读取的是该版本侧边栏的标记属性。
+- DeepSeek Harness **0.2.2-rc.2**（桌面版或 Web UI）—— 插件读取的是该版本侧边栏的标记属性。
 - 从源码构建需要 Node.js ≥ 24.9 与 pnpm 11。
 
 ## 安装
